@@ -58,7 +58,7 @@ def take_screenshots(targets, targets_suffix, lootdir, default_to_https):
 						elif port == '443':
 							target = 'https://' + target
 						else:
-							target = 'http' + ('s' if default_to_https else '') + target
+							target = 'http' + ('s' if default_to_https else '') + '://' + target
 
 					target = target+targets_suffix
 

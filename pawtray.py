@@ -1,9 +1,10 @@
 __version__ = '0.1'
 
 import argparse
+import sys
 from pathlib import Path
 from datetime import datetime as dt
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError
 
 def main():
 	parser = argparse.ArgumentParser(
@@ -13,9 +14,12 @@ def main():
 	parser.add_argument('-l', '--loot', required=False, default='./', action='store', help='directory to store the screenshots in')
 	parser.add_argument('-a', '--append', required=False, default='', action='store', help='suffix to append to every url')
 	parser.add_argument('-s', '--ssl', required=False, action='store_true', help='default to https instead of http when no protocol is specified')
+	parser.add_argument('-p', '--proxy', required=False, default='', help='specify a proxy such as socks5://127.0.0.1:1080')
 	parser.add_argument('-v', '--version', required=False, action='store_true', help='print version')
 
 	args = parser.parse_args()
+
+	proxy = { 'server': args.proxy }
 
 	if args.version == True:
 		print(f'v{__version__}')
@@ -29,12 +33,12 @@ def main():
 	lootdir = Path(args.loot)
 	lootdir.mkdir(parents=True, exist_ok=True)
 
-	take_screenshots(targets, args.append, lootdir, args.ssl)
+	take_screenshots(targets, args.append, lootdir, args.ssl, proxy)
 
-def take_screenshots(targets, targets_suffix, lootdir, default_to_https):
+def take_screenshots(targets, targets_suffix, lootdir, default_to_https, proxy):
 	with sync_playwright() as p:
-		browser = p.chromium.launch(headless=True)
-		context = browser.new_context()
+		browser = p.chromium.launch(headless=True, proxy=(proxy if proxy['server']!='' else None))
+		context = browser.new_context(ignore_https_errors=True)
 
 		page = context.new_page()
 
@@ -63,7 +67,18 @@ def take_screenshots(targets, targets_suffix, lootdir, default_to_https):
 					target = target+targets_suffix
 
 					print(f'[{n_done:>6}|{total}] ({int(n_done/total*100):>3}%) Capturing: {target}', end='\r')
-					page.goto(target)
+					try:
+						page.goto(target, timeout=10000)
+					except TimeoutError as e:
+						print(f'( Timeout Error! )')
+						continue
+					except Exception as e:
+						print(f'Exception caused for {target}: {e}')
+						# Start new fresh context
+						browser = p.chromium.launch(headless=True, proxy=proxy)
+						context = browser.new_context(ignore_https_errors=True)
+						page = context.new_page()
+						continue
 
 					filename = target
 					filename = filename.replace('/', '_')
@@ -74,7 +89,7 @@ def take_screenshots(targets, targets_suffix, lootdir, default_to_https):
 					filename = filename.replace('\\', '_')
 					filename = filename.replace('<', '_')
 					filename = filename.replace('>', '_')
-					page.screenshot(path=lootdir.joinpath(f'{filename}_{dt.now().strftime("%Y-%m-%d_%H:%M:%S")}.png'), full_page=True)
+					page.screenshot(path=lootdir.joinpath(f'pt_{filename}_{dt.now().strftime("%Y-%m-%d_%H:%M:%S")}.png'), full_page=True)
 					n_done += 1
 					if n_done == total:
 						print(f'[{n_done:>6}|{total}] ({int(n_done/total*100):>3}%)')
